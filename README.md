@@ -17,16 +17,16 @@ When critical threats bypass local heuristics, high-fidelity alerts are streamed
 
 ```mermaid
 graph TD
-    A[Local System Events (Kernel/ETW)] -->|Capture| B(Rust Agent Core)
-    B -->|Persist| C[(Local Ring Buffer: 7 days)]
-    B -->|Analyze| D[Edge AI & Rule Engine]
-    D -.->|Drop Noise| X(Discarded 95%)
-    D -->|High-Value Alerts| E[gRPC Ingest Gateway]
-    E -->|Publish| F((NATS JetStream))
-    F -->|Batch Insert| G[(ClickHouse DB)]
-    G -->|Query| H[SOC Dashboard]
+    A["Local System Events (Kernel/ETW)"] -->|Capture| B["Rust Agent Core"]
+    B -->|Persist| C[("Local Ring Buffer: 7 days")]
+    B -->|Analyze| D["Edge AI & Rule Engine"]
+    D -.->|Drop Noise| X["Discarded 95%"]
+    D -->|High-Value Alerts| E["gRPC Ingest Gateway"]
+    E -->|Publish| F(("NATS JetStream"))
+    F -->|Batch Insert| G[("ClickHouse DB")]
+    G -->|Query| H["SOC Dashboard"]
     H -.->|On-Demand Query| B
-    F -->|Consume| I[Agentic AI Orchestrator]
+    F -->|Consume| I["Agentic AI Orchestrator"]
     I -->|Dispatch Isolation| E
     E -->|gRPC Stream| B
 ```
