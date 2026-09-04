@@ -1,24 +1,47 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 
 // Inline lucide icons for premium aesthetics
-const ShieldIcon = () => <svg className="w-6 h-6 text-primary" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>;
 const ActivityIcon = () => <svg className="w-5 h-5 text-textMuted" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>;
 
+type Alert = {
+  event_id: string;
+  timestamp: string;
+  endpoint_id: string;
+  tenant_id: string;
+  severity: number;
+  message: string;
+  category: string;
+};
+
 function App() {
-  const [alerts, setAlerts] = useState<any[]>([]);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
 
   useEffect(() => {
-    // Simulated websocket stream of real-time alerts from the gRPC Gateway
-    const timer = setInterval(() => {
-      setAlerts(prev => [{
-        id: Math.random().toString(36).substr(2, 9),
-        endpoint: 'EP-WIN-' + Math.floor(Math.random() * 9000 + 1000),
-        type: Math.random() > 0.5 ? 'Suspicious PowerShell Spawn' : 'Network Discovery Anomaly',
-        time: new Date().toLocaleTimeString(),
-        severity: Math.random() > 0.8 ? 'critical' : 'warning'
-      }, ...prev].slice(0, 8)); // Keep top 8
-    }, 2500);
-    return () => clearInterval(timer);
+    let cancelled = false;
+
+    const fetchAlerts = async () => {
+      try {
+        const res = await fetch('/api/alerts');
+        if (!res.ok) {
+          return;
+        }
+
+        const data = (await res.json()) as Alert[];
+        if (!cancelled) {
+          setAlerts(data.slice(0, 8));
+        }
+      } catch {
+        // Ignore transient network errors during polling in dev.
+      }
+    };
+
+    fetchAlerts();
+    const timer = setInterval(fetchAlerts, 2500);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
   }, []);
 
   return (
@@ -26,7 +49,7 @@ function App() {
       {/* Sidebar */}
       <aside className="w-64 glass-panel flex flex-col p-4">
         <div className="flex items-center gap-3 mb-8">
-          <ShieldIcon />
+          <img src="/edtp.png" alt="EDTP Logo" className="w-9 h-9 rounded-md object-cover border border-white/10 bg-slate-900/40" />
           <h1 className="text-xl font-bold tracking-wider text-textMain">EDTP <span className="text-primary text-sm uppercase font-black">Core</span></h1>
         </div>
         <nav className="flex-1 space-y-2">
@@ -95,21 +118,21 @@ function App() {
               </thead>
               <tbody>
                 {alerts.map((alert) => (
-                  <tr key={alert.id} className="border-b border-borderSubtle/30 hover:bg-surface transition-colors group cursor-pointer">
-                    <td className="py-4 text-textMuted text-sm font-mono">{alert.time}</td>
-                    <td className="py-4 font-mono text-sm font-medium text-textMain">{alert.endpoint}</td>
-                    <td className="py-4 font-medium text-sm text-textMain">{alert.type}</td>
+                  <tr key={alert.event_id} className="border-b border-borderSubtle/30 hover:bg-surface transition-colors group cursor-pointer">
+                    <td className="py-4 text-textMuted text-sm font-mono">{new Date(alert.timestamp).toLocaleTimeString()}</td>
+                    <td className="py-4 font-mono text-sm font-medium text-textMain">{alert.endpoint_id}</td>
+                    <td className="py-4 font-medium text-sm text-textMain">{alert.message}</td>
                     <td className="py-4">
                       <span className={`px-2 py-1 rounded text-[10px] font-black uppercase tracking-widest ${
-                        alert.severity === 'critical' 
+                        alert.severity >= 8
                           ? 'bg-critical/20 text-critical border border-critical/30 shadow-[0_0_10px_rgba(255,42,95,0.2)]' 
                           : 'bg-warning/20 text-warning border border-warning/30'
                       }`}>
-                        {alert.severity}
+                        {alert.severity >= 8 ? 'critical' : 'warning'}
                       </span>
                     </td>
                     <td className="py-4 text-right">
-                      {alert.severity === 'critical' ? (
+                      {alert.severity >= 8 ? (
                         <button className="px-4 py-1.5 bg-critical/10 text-critical text-xs font-bold uppercase tracking-wide rounded border border-critical/30 hover:bg-critical hover:text-white transition-all shadow-[0_0_10px_rgba(255,42,95,0.2)] hover:shadow-[0_0_15px_rgba(255,42,95,0.5)]">
                           Isolate
                         </button>

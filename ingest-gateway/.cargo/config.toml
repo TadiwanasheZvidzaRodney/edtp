@@ -1,0 +1,14 @@
+[target.x86_64-pc-windows-gnu]
+# Pin GNU tooling to MSYS2 so builds do not depend on shell PATH setup.
+linker = "C:/Users/tadiwanashe.zvidza/Documents/edtp/ingest-gateway/.cargo/tools/msys2-gcc.cmd"
+ar = "C:/msys64/mingw64/bin/ar.exe"
+rustflags = ["-C", "dlltool=C:/Users/tadiwanashe.zvidza/Documents/edtp/ingest-gateway/.cargo/tools/msys2-dlltool.cmd"]
+
+[env]
+# Pin build-script tool discovery to wrappers that set MSYS2 runtime path.
+CC = "C:/Users/tadiwanashe.zvidza/Documents/edtp/ingest-gateway/.cargo/tools/msys2-gcc.cmd"
+CC_x86_64_pc_windows_gnu = "C:/Users/tadiwanashe.zvidza/Documents/edtp/ingest-gateway/.cargo/tools/msys2-gcc.cmd"
+AR = "C:/msys64/mingw64/bin/ar.exe"
+RANLIB = "C:/msys64/mingw64/bin/gcc-ranlib.exe"
+DLLTOOL = "C:/Users/tadiwanashe.zvidza/Documents/edtp/ingest-gateway/.cargo/tools/msys2-dlltool.cmd"
+PROTOC = "C:/Users/tadiwanashe.zvidza/AppData/Local/Microsoft/WinGet/Packages/Google.Protobuf_Microsoft.Winget.Source_8wekyb3d8bbwe/bin/protoc.exe"

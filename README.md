@@ -62,6 +62,31 @@ This project is organized as a unified monorepo:
 
 ## 🏁 Getting Started (Local Development)
 
+### Windows Notes (Rust Services)
+If you are developing on Windows with Git Bash, both Rust services now include project-local Rust GNU toolchain wiring and wrapper scripts:
+- `ingest-gateway/.cargo/config.toml`
+- `ingest-gateway/.cargo/tools/msys2-gcc.cmd`
+- `ingest-gateway/.cargo/tools/msys2-dlltool.cmd`
+- `agent-core/.cargo/config.toml`
+- `agent-core/.cargo/tools/msys2-gcc.cmd`
+- `agent-core/.cargo/tools/msys2-dlltool.cmd`
+
+Install MSYS2 and required GNU tools once:
+```bash
+winget install --id MSYS2.MSYS2 --source winget -e --scope user --accept-source-agreements --accept-package-agreements
+/c/msys64/usr/bin/pacman.exe -S --noconfirm --needed mingw-w64-x86_64-binutils mingw-w64-x86_64-gcc
+```
+
+Install `protoc` (required by `build.rs` for `telemetry.proto` generation):
+```bash
+winget install --id Google.Protobuf --source winget -e --accept-source-agreements --accept-package-agreements
+```
+
+If `protoc` is installed but not discovered, set:
+```bash
+export PROTOC="/c/Users/tadiwanashe.zvidza/AppData/Local/Microsoft/WinGet/Packages/Google.Protobuf_Microsoft.Winget.Source_8wekyb3d8bbwe/bin/protoc.exe"
+```
+
 ### 1. Start the Infrastructure
 Spin up NATS and ClickHouse locally using Docker:
 ```bash
@@ -74,6 +99,12 @@ Start the gRPC server and ClickHouse insertion worker:
 ```bash
 cd ingest-gateway
 cargo run
+```
+
+The dashboard API is exposed at `http://127.0.0.1:18080/api/alerts` by default.
+If needed, override with:
+```bash
+export DASHBOARD_API_ADDR="127.0.0.1:18080"
 ```
 
 ### 3. Run the Rust Edge Agent
@@ -97,6 +128,6 @@ Run the LangGraph orchestrator to automatically monitor and isolate threats:
 cd agentic-ai
 python -m venv venv
 venv\Scripts\activate
-pip install -r requirements.txt
+pip install -e .
 python main.py
 ```

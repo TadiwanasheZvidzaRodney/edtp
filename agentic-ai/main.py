@@ -1,35 +1,106 @@
 import asyncio
-from typing import TypedDict, List, Literal
-from langgraph.graph import StateGraph, END
+import json
+import os
+from datetime import datetime, timezone
+from typing import List, Literal, TypedDict
+
+import nats
+from langgraph.graph import END, StateGraph
+from pydantic import BaseModel, Field, ValidationError
+
+NATS_URL = os.getenv("NATS_URL", "nats://127.0.0.1:4222")
+ALERT_SUBJECT = os.getenv("NATS_ALERT_SUBJECT", "telemetry.alerts")
+COMMAND_SUBJECT = os.getenv("NATS_COMMAND_SUBJECT", "telemetry.commands")
+
+COMMAND_PUBLISHER: nats.NATS | None = None
+
+
+class AlertEvent(BaseModel):
+    event_id: str
+    timestamp: str
+    endpoint_id: str
+    tenant_id: str
+    severity: int = Field(ge=0, le=10)
+    message: str
+    category: str
+
+
+class IsolateCommand(BaseModel):
+    command_id: str
+    action: str
+    endpoint_id: str
+    tenant_id: str
+    reason: str
+    source_alert_id: str
+    issued_at: str
+
 
 # Define the orchestration state
 class AgentState(TypedDict):
-    alert_id: str
-    endpoint: str
+    alert: AlertEvent
     raw_logs: List[str]
     analysis: str
     action: str
 
+
 def ingest_alert(state: AgentState):
-    print(f"\n[IngestNode] Received critical alert {state['alert_id']} from {state['endpoint']}")
-    return {"raw_logs": ["Detected hidden PowerShell spawn from winword.exe via Agent Rule Engine"]}
+    alert = state["alert"]
+    print(f"\n[IngestNode] Received alert {alert.event_id} from {alert.endpoint_id} ({alert.category})")
+    return {"raw_logs": [f"Alert message: {alert.message}"]}
+
 
 def query_history(state: AgentState):
-    print("[QueryNode] Querying ClickHouse analytical store for 30-day baseline context...")
+    print("[QueryNode] Querying historical baseline context...")
     logs = state.get("raw_logs", [])
-    logs.append("Context: User on EP-WIN-1042 has never spawned PowerShell before in the last 30 days.")
+    alert = state["alert"]
+    logs.append(
+        f"Context: Endpoint {alert.endpoint_id} has low prior frequency for category '{alert.category}'."
+    )
     return {"raw_logs": logs}
 
-def analyze_threat(state: AgentState):
-    print("[LLMNode] Correlating telemetry via LLM...")
-    # Simulated deterministic output based on context
-    analysis = "High-confidence malicious macro execution (T1059.001). Immediate isolation required to prevent lateral movement."
-    print(f"   -> Result: {analysis}")
-    return {"analysis": analysis, "action": "isolate"}
 
-def isolate_endpoint(state: AgentState):
-    print(f"![ResponseNode] Dispatching ISOLATE command to {state['endpoint']} via gRPC gateway...")
+def analyze_threat(state: AgentState):
+    alert = state["alert"]
+    print("[DecisionNode] Correlating telemetry and applying deterministic policy...")
+
+    if alert.severity >= 8:
+        analysis = (
+            f"High-severity alert ({alert.severity}/10) in category '{alert.category}'. "
+            "Immediate containment recommended."
+        )
+        action = "isolate"
+    else:
+        analysis = (
+            f"Moderate alert ({alert.severity}/10) in category '{alert.category}'. "
+            "Keep endpoint monitored."
+        )
+        action = "monitor"
+
+    print(f"   -> Result: {analysis}")
+    return {"analysis": analysis, "action": action}
+
+
+async def isolate_endpoint(state: AgentState):
+    alert = state["alert"]
+    print(f"[ResponseNode] Dispatching ISOLATE command to {alert.endpoint_id} via NATS...")
+
+    if COMMAND_PUBLISHER is None:
+        raise RuntimeError("NATS publisher is not initialized")
+
+    command = IsolateCommand(
+        command_id=f"CMD-{alert.event_id}",
+        action="isolate",
+        endpoint_id=alert.endpoint_id,
+        tenant_id=alert.tenant_id,
+        reason=state["analysis"],
+        source_alert_id=alert.event_id,
+        issued_at=datetime.now(timezone.utc).isoformat(),
+    )
+
+    await COMMAND_PUBLISHER.publish(COMMAND_SUBJECT, command.model_dump_json().encode("utf-8"))
+    print(f"   -> Command published on subject '{COMMAND_SUBJECT}'")
     return state
+
 
 def should_isolate(state: AgentState) -> Literal["isolate", "end"]:
     return "isolate" if state.get("action") == "isolate" else "end"
@@ -50,14 +121,40 @@ workflow.set_entry_point("ingest")
 app = workflow.compile()
 
 async def run_ai():
+    global COMMAND_PUBLISHER
+
     print("Starting LangGraph Orchestration Engine...")
-    print("Listening for high-severity alerts from NATS stream...\n")
-    
-    # Simulate receiving an alert
-    state = {"alert_id": "ALT-CRIT-990", "endpoint": "EP-WIN-1042", "raw_logs": [], "analysis": "", "action": ""}
-    
-    async for output in app.astream(state):
-        pass # Nodes handle printing
+    print(f"Connecting to NATS at {NATS_URL}...")
+
+    nc = await nats.connect(servers=[NATS_URL])
+    COMMAND_PUBLISHER = nc
+    subscription = await nc.subscribe(ALERT_SUBJECT)
+
+    print(f"Listening for alerts on '{ALERT_SUBJECT}'...\n")
+
+    while True:
+        try:
+            msg = await subscription.next_msg(timeout=30)
+        except nats.errors.TimeoutError:
+            # Keep the worker alive during idle periods with no alerts.
+            continue
+
+        try:
+            payload = json.loads(msg.data.decode("utf-8"))
+            alert = AlertEvent.model_validate(payload)
+        except (json.JSONDecodeError, ValidationError) as exc:
+            print(f"[ParseError] Dropping invalid alert payload: {exc}")
+            continue
+
+        state: AgentState = {
+            "alert": alert,
+            "raw_logs": [],
+            "analysis": "",
+            "action": "",
+        }
+
+        async for _ in app.astream(state):
+            pass
 
 if __name__ == "__main__":
     asyncio.run(run_ai())

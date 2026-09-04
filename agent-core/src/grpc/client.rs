@@ -1,8 +1,23 @@
 use crate::grpc::pb::{telemetry_service_client::TelemetryServiceClient, AlertEvent as PbAlertEvent};
-use tonic::transport::Channel;
+use anyhow::Context;
+use serde::Deserialize;
+use std::env;
+use std::process::Command;
 use tokio::sync::mpsc;
+use tokio_stream::StreamExt;
 use tokio_stream::wrappers::ReceiverStream;
 use crate::models::TelemetryEvent;
+
+#[derive(Debug, Deserialize)]
+struct EndpointCommand {
+    command_id: String,
+    action: String,
+    endpoint_id: String,
+    tenant_id: String,
+    reason: String,
+    source_alert_id: String,
+    issued_at: String,
+}
 
 pub struct GrpcAlertClient {
     tx: mpsc::Sender<PbAlertEvent>,
@@ -53,15 +68,75 @@ impl GrpcAlertClient {
     }
 
     pub async fn listen_for_commands(&self) -> anyhow::Result<()> {
-        // In a real implementation, this opens a bidirectional stream or separate RPC
-        // to listen for 'Isolate' commands sent from the Agentic AI via the gateway.
-        println!("Agent is securely listening for Agentic AI commands (e.g. Isolate Endpoint) via mTLS...");
-        
-        // Mock isolation execution block:
-        // std::process::Command::new("netsh")
-        //     .args(["advfirewall", "set", "allprofiles", "state", "on", "blockinbound", "always"])
-        //     .spawn()?;
-        
+        let nats_url = env::var("NATS_URL").unwrap_or_else(|_| "127.0.0.1:4222".to_string());
+        let command_subject = env::var("NATS_COMMAND_SUBJECT")
+            .unwrap_or_else(|_| "telemetry.commands".to_string());
+        let isolate_enabled = env::var("ENABLE_ENDPOINT_ISOLATION")
+            .map(|v| v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+
+        let nats_client = async_nats::connect(&nats_url)
+            .await
+            .with_context(|| format!("Failed to connect to NATS at {}", nats_url))?;
+        let mut subscriber = nats_client
+            .subscribe(command_subject.clone())
+            .await
+            .with_context(|| format!("Failed to subscribe to {}", command_subject))?;
+
+        println!(
+            "Agent command listener connected to NATS subject '{}' (isolation execution: {})",
+            command_subject,
+            if isolate_enabled { "enabled" } else { "dry-run" }
+        );
+
+        tokio::spawn(async move {
+            let _keep_alive = nats_client;
+
+            while let Some(msg) = subscriber.next().await {
+                let parsed = serde_json::from_slice::<EndpointCommand>(&msg.payload);
+                match parsed {
+                    Ok(command) => {
+                        println!(
+                            "Received command {} for endpoint {} (tenant {}), source alert {} at {}: {}",
+                            command.command_id,
+                            command.endpoint_id,
+                            command.tenant_id,
+                            command.source_alert_id,
+                            command.issued_at,
+                            command.reason
+                        );
+
+                        if command.action.eq_ignore_ascii_case("isolate") {
+                            if isolate_enabled {
+                                let status = Command::new("netsh")
+                                    .args(["advfirewall", "set", "allprofiles", "state", "on"])
+                                    .status();
+
+                                match status {
+                                    Ok(exit) if exit.success() => {
+                                        println!("Isolation action executed successfully via netsh");
+                                    }
+                                    Ok(exit) => {
+                                        eprintln!("Isolation command failed with exit status: {}", exit);
+                                    }
+                                    Err(err) => {
+                                        eprintln!("Failed to invoke isolation command: {}", err);
+                                    }
+                                }
+                            } else {
+                                println!(
+                                    "Dry-run mode: set ENABLE_ENDPOINT_ISOLATION=true to execute host isolation"
+                                );
+                            }
+                        }
+                    }
+                    Err(err) => {
+                        eprintln!("Failed to parse command payload: {}", err);
+                    }
+                }
+            }
+        });
+
         Ok(())
     }
 }
