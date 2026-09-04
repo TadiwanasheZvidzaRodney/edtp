@@ -21,7 +21,7 @@ pub struct ClickHouseStore {
 impl ClickHouseStore {
     pub async fn new(url: &str) -> anyhow::Result<Self> {
         let ch_user = env::var("CLICKHOUSE_USER").unwrap_or_else(|_| "default".to_string());
-        let ch_password = env::var("CLICKHOUSE_PASSWORD").unwrap_or_else(|_| "edtp".to_string());
+        let ch_password = env::var("CLICKHOUSE_PASSWORD").unwrap_or_default();
 
         let client = Client::default()
             .with_url(url)
