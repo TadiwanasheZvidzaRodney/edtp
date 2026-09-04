@@ -24,6 +24,9 @@ async fn recent_alerts_handler(
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    dotenvy::dotenv().ok();
+    dotenvy::from_filename("../infrastructure/.env").ok();
+
     println!("Starting Ingestion Gateway (Phase 3)...");
 
     let nats_url = "127.0.0.1:4222";
