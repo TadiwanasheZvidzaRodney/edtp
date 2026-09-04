@@ -36,7 +36,9 @@ function App() {
     };
 
     fetchAlerts();
-    const timer = setInterval(fetchAlerts, 2500);
+    // Poll every 30 seconds (configurable via VITE_POLL_INTERVAL_MS)
+    const pollInterval = Number(import.meta.env.VITE_POLL_INTERVAL_MS) || 30000;
+    const timer = setInterval(fetchAlerts, pollInterval);
 
     return () => {
       cancelled = true;
