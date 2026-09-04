@@ -13,7 +13,7 @@ services:
     environment:
       CLICKHOUSE_DB: ${CLICKHOUSE_DB:-default}
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
-      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-edtp}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-}
     ports:
       - "8123:8123"
       - "9000:9000"
