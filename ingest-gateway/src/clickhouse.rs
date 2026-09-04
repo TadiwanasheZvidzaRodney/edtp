@@ -20,8 +20,11 @@ pub struct ClickHouseStore {
 
 impl ClickHouseStore {
     pub async fn new(url: &str) -> anyhow::Result<Self> {
+        dotenvy::dotenv().ok();
+        dotenvy::from_filename("../infrastructure/.env").ok();
+
         let ch_user = env::var("CLICKHOUSE_USER").unwrap_or_else(|_| "default".to_string());
-        let ch_password = env::var("CLICKHOUSE_PASSWORD").unwrap_or_default();
+        let ch_password = env::var("CLICKHOUSE_PASSWORD").unwrap_or_else(|_| "your_password_here".to_string());
 
         let client = Client::default()
             .with_url(url)
