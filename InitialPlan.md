@@ -18,3 +18,35 @@ Raw, verbose logs are kept on the local computer's hard drive in a rolling buffe
 
 **The Next Evolution: Agentic AI**
 The newest generation of AI security takes this a step further. **Agentic AI** doesn't just look for known bad behaviors; it acts autonomously. If the AI suspects a breach, it can isolate the computer from the network, kill the malicious process, dynamically increase log tracking for that specific app, and write a human-readable summary of the attack—all before the central security team even opens the alert.
+
+## ETW Implementation Plan (Execution Ready)
+
+1. Provider Scope and Event Mapping
+- Enable `Microsoft-Windows-Kernel-Process` provider first.
+- Map ETW payload to `TelemetryEvent::ProcessCreate` and `TelemetryEvent::ProcessTerminate`.
+- Keep synthetic fallback behind `EDTP_TELEMETRY_MODE=synthetic|etw`.
+
+2. Session Lifecycle and Privilege Handling
+- Implement `StartTraceW`, `OpenTraceW`, and `ProcessTrace` lifecycle with explicit cleanup.
+- Detect non-admin context and return a clear actionable error.
+- Add graceful shutdown to stop trace session on Ctrl+C.
+
+3. Parsing and Normalization
+- Parse image path, process id, parent process id, command line, and UTC timestamp.
+- Normalize missing command lines to empty string and tag source provider.
+- Add per-event parse error counters instead of panicking.
+
+4. Reliability and Throughput
+- Keep existing lock-free channel pipeline and backpressure limits.
+- Add bounded drop counters when receiver is saturated.
+- Add lightweight metrics logs every 30 seconds: received, parsed, dropped, forwarded.
+
+5. Verification
+- Add an ETW smoke test mode that emits known process spawn patterns.
+- Validate that rule matches and anomaly detections still flow to gateway.
+- Verify command listener remains active in parallel with ETW ingestion.
+
+6. Security and Operations
+- Make endpoint isolation opt-in (`ENABLE_ENDPOINT_ISOLATION=true`) with dry-run default.
+- Add audit log entries for every received command and every executed action.
+- Document required Windows privileges, firewall allowances, and rollback steps.

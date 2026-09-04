@@ -36,6 +36,11 @@ async fn main() -> Result<()> {
             panic!("Critical: Cannot start without central connection: {}", e);
         });
 
+    grpc_client
+        .listen_for_commands()
+        .await
+        .context("Failed to start command listener")?;
+
     // Setup Lock-Free Channel
     let (tx, rx) = channel::bounded(10_000);
 

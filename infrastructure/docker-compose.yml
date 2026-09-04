@@ -10,6 +10,10 @@ services:
 
   clickhouse:
     image: clickhouse/clickhouse-server:latest
+    environment:
+      CLICKHOUSE_DB: default
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: edtp
     ports:
       - "8123:8123"
       - "9000:9000"

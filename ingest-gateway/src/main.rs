@@ -2,7 +2,12 @@ mod clickhouse;
 mod grpc;
 mod nats_client;
 
+use axum::{extract::State, routing::get, Json, Router};
+use grpc::SharedAlerts;
+use grpc::SerializableAlert;
 use std::sync::Arc;
+use std::collections::VecDeque;
+use std::env;
 use tokio_stream::StreamExt;
 use tonic::transport::Server;
 use crate::grpc::pb::telemetry_service_server::TelemetryServiceServer;
@@ -10,12 +15,21 @@ use crate::grpc::TelemetryServerImpl;
 use crate::nats_client::NatsPublisher;
 use crate::clickhouse::{ClickHouseStore, AlertRow};
 
+async fn recent_alerts_handler(
+    State(recent_alerts): State<SharedAlerts>,
+) -> Json<Vec<SerializableAlert>> {
+    let guard = recent_alerts.read().await;
+    Json(guard.iter().cloned().collect())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     println!("Starting Ingestion Gateway (Phase 3)...");
 
     let nats_url = "127.0.0.1:4222";
     let clickhouse_url = "http://127.0.0.1:8123";
+    let dashboard_api_addr = env::var("DASHBOARD_API_ADDR")
+        .unwrap_or_else(|_| "127.0.0.1:18080".to_string());
 
     // 1. Initialize ClickHouse (Ensures analytical schema exists)
     let ch_store = Arc::new(ClickHouseStore::new(clickhouse_url).await
@@ -31,6 +45,8 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|e| {
             panic!("Critical: NATS initialization failed: {}", e);
         }));
+
+    let recent_alerts: SharedAlerts = Arc::new(tokio::sync::RwLock::new(VecDeque::new()));
 
     // 3. Start NATS to ClickHouse Worker (The Consumer)
     let nats_client = async_nats::connect(nats_url).await?;
@@ -60,7 +76,20 @@ async fn main() -> anyhow::Result<()> {
 
     // 4. Start gRPC API Gateway
     let addr = "0.0.0.0:50051".parse()?;
-    let server_impl = TelemetryServerImpl::new(nats_publisher);
+    let server_impl = TelemetryServerImpl::new(nats_publisher, recent_alerts.clone());
+
+    let http_app = Router::new()
+        .route("/api/alerts", get(recent_alerts_handler))
+        .with_state(recent_alerts);
+
+    let http_listener = tokio::net::TcpListener::bind(&dashboard_api_addr).await?;
+    tokio::spawn(async move {
+        if let Err(e) = axum::serve(http_listener, http_app).await {
+            eprintln!("Dashboard API server failed: {}", e);
+        }
+    });
+
+    println!("Dashboard API listening on http://{}/api/alerts", dashboard_api_addr);
 
     println!("gRPC Telemetry Gateway listening on {}", addr);
     Server::builder()
